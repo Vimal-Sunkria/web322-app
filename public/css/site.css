@@ -1,5 +1,16 @@
 
-p {
-    size: 100px;
+* {
+  margin: 0;
+  padding: 0;
+}
 
+/* Navigation bar styles */
+.navbar {
+  border: none;
+  border-radius: 0;
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 99;
 }
