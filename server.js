@@ -9,7 +9,8 @@
  *  Online (Cyclic) Link: https://nice-ruby-crane-fez.cyclic.app/
  *
  ********************************************************************************/
-
+var clientSessions = require("client-sessions");
+const dataServiceAuth = require("./data-service-auth");
 var express = require("express");
 const multer = require("multer");
 const streamifier = require("streamifier");
@@ -19,8 +20,44 @@ const cloudinary = require("cloudinary").v2;
 var app = express();
 var HTTP_PORT = process.env.PORT || 8080;
 
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static("public"));
+// Register handlerbars as the rendering engine for views
+app.engine(".hbs", exphbs.engine({ extname: ".hbs" }));
+app.set("view engine", ".hbs");
+
+// Setup the static folder that static resources can load from
+// like images, css files, etc.
+app.use(express.static("static"));
+
+// Setup client-sessions
+app.use(
+  clientSessions({
+    cookieName: "session", // this is the object name that will be added to 'req'
+    secret: "week10example_web322", // this should be a long un-guessable string.
+    duration: 2 * 60 * 1000, // duration of the session in milliseconds (2 minutes)
+    activeDuration: 1000 * 60, // the session will be extended by this many ms each request (1 minute)
+  })
+);
+
+// session middleware to make the session object available to all templates
+app.use(function (req, res, next) {
+  res.locals.session = req.session;
+  next();
+});
+
+// This is a helper middleware function that checks if a user is logged in
+// we can use it in any route that we want to protect against unauthenticated access.
+// A more advanced version of this would include checks for authorization as well after
+// checking if the user is authenticated
+function ensureLogin(req, res, next) {
+  if (!req.session.user) {
+    res.redirect("/login");
+  } else {
+    next();
+  }
+}
+
+// Parse application/x-www-form-urlencoded
+app.use(express.urlencoded({ extended: false }));
 
 const dataService = require("./data-service");
 
@@ -30,10 +67,6 @@ cloudinary.config({
   api_secret: "iiZ3toH-zUQmecUMbSKWqQMw4ZU",
 });
 const upload = multer();
-
-app.engine(".hbs", exphbs.engine({ extname: "hbs" }));
-
-app.set("view engine", ".hbs");
 
 app.engine(
   ".hbs",
@@ -73,14 +106,14 @@ app.get("/about", (req, res) => {
   res.render("about");
 });
 
-app.get("/students/add", (req, res) => {
+app.get("/students/add", ensureLogin, (req, res) => {
   dataService
     .getPrograms()
     .then((data) => res.render("addStudent", { programs: data }))
     .catch((err) => res.render("addStudent", { programs: [] }));
 });
 
-app.get("/students", (req, res) => {
+app.get("/students", ensureLogin, (req, res) => {
   const status = req.query.status;
   const program = req.query.program;
   const credential = req.query.credential;
@@ -132,7 +165,7 @@ app.get("/students", (req, res) => {
   }
 });
 
-app.get("/students/delete/:studentID", (req, res) => {
+app.get("/students/delete/:studentID", ensureLogin, (req, res) => {
   const studentID = req.params.studentID;
   dataService
     .deleteStudentById(studentID)
@@ -142,7 +175,7 @@ app.get("/students/delete/:studentID", (req, res) => {
     );
 });
 
-app.post("/student/update", (req, res) => {
+app.post("/student/update", ensureLogin, (req, res) => {
   console.log(req.body.studentID);
   dataService
     .updateStudent(req.body)
@@ -155,7 +188,7 @@ app.post("/student/update", (req, res) => {
     });
 });
 
-app.post("/students/add", function (req, res) {
+app.post("/students/add", ensureLogin, function (req, res) {
   dataService
     .addStudent(req.body)
     .then(() => {
@@ -167,7 +200,7 @@ app.post("/students/add", function (req, res) {
     });
 });
 
-app.get("/student/:studentId", (req, res) => {
+app.get("/student/:studentId", ensureLogin, (req, res) => {
   let viewData = {};
 
   dataService
@@ -212,11 +245,11 @@ app.get("/student/:studentId", (req, res) => {
     });
 });
 
-app.get("/programs/add", (req, res) => {
+app.get("/programs/add", ensureLogin, (req, res) => {
   res.render("addProgram");
 });
 
-app.get("/programs", (req, res) => {
+app.get("/programs", ensureLogin, (req, res) => {
   dataService
     .getPrograms()
     .then((programs) => {
@@ -229,7 +262,7 @@ app.get("/programs", (req, res) => {
     });
 });
 
-app.get("/program/:programCode", (req, res) => {
+app.get("/program/:programCode", ensureLogin, (req, res) => {
   dataService
     .getProgramByCode(req.params.programCode)
     .then((data) => {
@@ -239,7 +272,7 @@ app.get("/program/:programCode", (req, res) => {
     .catch(() => res.status(404).send("Program Not Found"));
 });
 
-app.get("/programs/delete/:programCode", (req, res) => {
+app.get("/programs/delete/:programCode", ensureLogin, (req, res) => {
   dataService
     .deleteProgramByCode(req.params.programCode)
     .then(() => res.redirect("/programs"))
@@ -248,83 +281,140 @@ app.get("/programs/delete/:programCode", (req, res) => {
     );
 });
 
-app.post("/program/update", (req, res) => {
+app.post("/program/update", ensureLogin, (req, res) => {
   dataService
     .updateProgram(req.body)
     .then(() => res.redirect("/programs"))
     .catch((error) => res.json({ message: err }));
 });
 
-app.post("/programs/add", function (req, res) {
+app.post("/programs/add", ensureLogin, function (req, res) {
   dataService
     .addProgram(req.body)
     .then(() => res.redirect("/programs"))
     .catch((err) => res.json({ message: err }));
 });
 
-app.get("/images/add", (req, res) => {
+app.get("/images/add", ensureLogin, (req, res) => {
   res.render("addImage");
 });
 
-app.get("/images", function (req, res) {
+app.get("/images", ensureLogin, function (req, res) {
   dataService
     .getImages()
     .then(function (images) {
       if (images.length > 0) res.render("images", { images });
       else res.render("images", { message: "no results" });
     })
-    .catch(function (err) {
+    .catch((err) => {
       console.error(err);
       res.render("images", { message: "An error occurred." });
     });
 });
 
-app.post("/images/add", upload.single("imageFile"), function (req, res) {
-  if (req.file) {
-    let streamUpload = (req) => {
-      return new Promise((resolve, reject) => {
-        let stream = cloudinary.uploader.upload_stream((error, result) => {
-          if (result) {
-            resolve(result);
-          } else {
-            reject(error);
-          }
+app.post(
+  "/images/add",
+  ensureLogin,
+  upload.single("imageFile"),
+  function (req, res) {
+    if (req.file) {
+      let streamUpload = (req) => {
+        return new Promise((resolve, reject) => {
+          let stream = cloudinary.uploader.upload_stream((error, result) => {
+            if (result) {
+              resolve(result);
+            } else {
+              reject(error);
+            }
+          });
+          streamifier.createReadStream(req.file.buffer).pipe(stream);
         });
-        streamifier.createReadStream(req.file.buffer).pipe(stream);
-      });
-    };
+      };
 
-    async function upload(req) {
-      let result = await streamUpload(req);
-      console.log(result);
-      return result;
+      async function upload(req) {
+        let result = await streamUpload(req);
+        console.log(result);
+        return result;
+      }
+
+      upload(req).then((uploaded) => {
+        processForm(uploaded);
+      });
+    } else {
+      processForm("");
     }
 
-    upload(req).then((uploaded) => {
-      processForm(uploaded);
+    function processForm(uploaded) {
+      let imgData = {};
+      imgData.imageId = uploaded.public_id;
+      imgData.imageUrl = uploaded.url;
+      imgData.version = uploaded.version;
+      imgData.width = uploaded.width;
+      imgData.height = uploaded.height;
+      imgData.format = uploaded.format;
+      imgData.resourceType = uploaded.resource_type;
+      imgData.uploadedAt = uploaded.created_at;
+      imgData.originalFileName = req.file.originalname;
+      imgData.mimeType = req.file.mimetype;
+
+      dataService
+        .addImage(imgData)
+        .then(() => res.redirect("/images"))
+        .catch(() => res.status(500).send("Error adding image"));
+    }
+  }
+);
+
+app.get("/login", (req, res) => {
+  res.render("login");
+});
+
+app.get("/register", (req, res) => {
+  res.render("register");
+});
+
+app.post("/register", function (req, res) {
+  const userData = req.body;
+  dataServiceAuth
+    .registerUser(userData)
+    .then(() => {
+      res.render("register", {
+        successMessage: "User created",
+      });
+    })
+    .catch((err) => {
+      res.render("register", {
+        errorMessage: err,
+        userName: req.body.userName,
+      });
     });
-  } else {
-    processForm("");
-  }
+});
 
-  function processForm(uploaded) {
-    let imgData = {};
-    imgData.imageId = uploaded.public_id;
-    imgData.imageUrl = uploaded.url;
-    imgData.version = uploaded.version;
-    imgData.width = uploaded.width;
-    imgData.height = uploaded.height;
-    imgData.format = uploaded.format;
-    imgData.resourceType = uploaded.resource_type;
-    imgData.uploadedAt = uploaded.created_at;
-    imgData.originalFileName = req.file.originalname;
-    imgData.mimeType = req.file.mimetype;
+app.post("/login", (req, res) => {
+  req.body.userAgent = req.get("User-Agent");
 
-    dataService
-      .addImage(imgData)
-      .then(() => res.redirect("/images"))
-      .catch(() => res.status(500).send("Error adding image"));
-  }
+  dataServiceAuth
+    .checkUser(req.body)
+    .then((user) => {
+      req.session.user = {
+        userName: user.userName,
+        email: user.email,
+        loginHistory: user.loginHistory,
+      };
+      res.redirect("/students");
+    })
+    .catch((err) => {
+      res.render("login", { errorMessage: err, userName: req.body.userName });
+    });
+});
+
+app.get("/logout", (req, res) => {
+  req.session.reset();
+  res.redirect("/");
+});
+
+app.get("/userHistory", ensureLogin, (req, res) => {
+  res.render("userHistory");
 });
 
 app.use(function (req, res, next) {
@@ -339,9 +429,12 @@ app.use((req, res) => {
 
 dataService
   .initialize()
-  .then(() =>
-    app.listen(HTTP_PORT, () =>
-      console.log("server listening on: http://localhost:" + HTTP_PORT + "/")
-    )
-  )
-  .catch((err) => console.log(err));
+  .then(dataServiceAuth.initialize)
+  .then(() => {
+    app.listen(HTTP_PORT, () => {
+      console.log(`app listening on: http://localhost:${HTTP_PORT}/`);
+    });
+  })
+  .catch((err) => {
+    console.log(`unable to start server: ${err}`);
+  });
